@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OVPDx · Attendance Sheet</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --maroon:#5e2030; --maroon-dark:#4a1826; --green:#2d4a2e; --green-dark:#233b24;
+    --ink:#2a2320; --muted:#8a7d78; --line:#cfc9c2; --bg:#efeeea;
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; background:var(--bg); color:var(--ink);
+    font-family:'EB Garamond', Georgia, serif; padding:24px 14px; }
+  .sheet{ max-width:1000px; margin:0 auto; background:#fff; border-radius:8px; overflow:hidden;
+    box-shadow:0 20px 50px -28px rgba(0,0,0,.4); }
+
+  header{ background:var(--maroon); color:#fff; padding:38px 46px 30px; }
+  header h1{ font-family:'Playfair Display', serif; font-weight:700; font-size:38px; margin:0 0 8px; }
+  header p{ margin:0; font-size:18px; opacity:.92; }
+
+  form{ padding:38px 46px 30px; }
+  .field{ margin-bottom:34px; }
+  .flabel{ font-weight:600; font-size:20px; color:var(--maroon); margin-bottom:12px; }
+  .flabel .req{ color:#c0392b; }
+  .row2{ display:grid; grid-template-columns:1fr 1fr; gap:34px; }
+  @media(max-width:640px){ .row2{ grid-template-columns:1fr; gap:18px; } }
+  .sub{ font-size:15px; color:var(--maroon); margin-top:8px; }
+  input[type="text"], input[type="date"]{
+    width:100%; padding:14px 16px; font-family:'EB Garamond', serif; font-size:18px;
+    color:var(--ink); background:#fff; border:1.5px solid var(--line); border-radius:2px; outline-offset:2px;
+  }
+  input:focus{ border-color:var(--maroon); outline:2px solid var(--maroon); }
+
+  /* signature */
+  .sig-wrap{ position:relative; width:100%; max-width:520px; }
+  canvas#sig{ width:100%; height:190px; border:1.5px solid var(--line); border-radius:2px; background:#fff;
+    touch-action:none; cursor:crosshair; display:block; }
+  .sig-base{ position:absolute; left:14px; right:60px; bottom:44px; border-bottom:1.5px dashed #d8cfc9; pointer-events:none; }
+  .sig-x{ position:absolute; left:14px; bottom:46px; color:#c8bdb6; font-size:20px; pointer-events:none; }
+  .sig-tools{ display:flex; gap:10px; margin-top:10px; }
+  .mini{ font-family:'EB Garamond',serif; font-size:15px; padding:8px 14px; border:1.5px solid var(--line);
+    background:#faf8f5; color:var(--maroon); border-radius:2px; cursor:pointer; }
+  .mini:hover{ background:#f2ede8; }
+
+  .btn{ font-family:'EB Garamond', serif; font-size:20px; font-weight:600; color:#fff; background:var(--green);
+    border:none; border-radius:2px; padding:15px 30px; cursor:pointer; }
+  .btn:hover{ background:var(--green-dark); }
+  .btn:active{ transform:translateY(1px); }
+  .msg{ margin-top:14px; font-size:16px; min-height:20px; }
+  .msg.err{ color:#c0392b; } .msg.ok{ color:var(--green); }
+
+  /* roster */
+  .roster{ border-top:1px solid var(--line); padding:28px 46px 40px; }
+  .roster-head{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+  .roster-head h2{ font-family:'Playfair Display',serif; font-size:24px; color:var(--maroon); margin:0; }
+  .roster-actions{ display:flex; gap:10px; }
+  .btn-pdf{ background:var(--maroon); } .btn-pdf:hover{ background:var(--maroon-dark); }
+  .btn-clear{ background:#8a7d78; font-size:16px; padding:12px 18px; } .btn-clear:hover{ background:#6f635f; }
+  .btn.small{ font-size:16px; padding:12px 18px; }
+  .filter-sel{ font-family:'EB Garamond',serif; font-size:16px; padding:11px 12px; border:1.5px solid var(--line); border-radius:2px; background:#fff; color:var(--ink); max-width:260px; }
+  table{ width:100%; border-collapse:collapse; }
+  th,td{ text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); font-size:17px; vertical-align:middle; }
+  th{ color:var(--maroon); font-weight:600; font-size:15px; letter-spacing:.02em; }
+  td .signm{ height:40px; }
+  td.num{ color:var(--muted); width:34px; }
+  .rm{ color:#c0392b; cursor:pointer; border:none; background:none; font-size:18px; }
+  .empty{ color:var(--muted); font-style:italic; padding:14px 8px; }
+  .count-pill{ font-size:15px; color:var(--muted); }
+</style>
+</head>
+<body>
+  <div class="sheet">
+    <header>
+      <h1>Attendance Sheet</h1>
+      <p>Enter your full name and office, then submit to check in for today&rsquo;s event.</p>
+    </header>
+
+    <form id="attForm" autocomplete="on">
+      <div class="field">
+        <div class="flabel">Event / Meeting Name <span class="req">*</span></div>
+        <input type="text" id="event" placeholder="e.g. 63rd OVPDx Management Meeting" required>
+        <div class="sub">Set once for this session &mdash; it appears on the exported sheet.</div>
+      </div>
+
+      <div class="field">
+        <div class="flabel">Full Name <span class="req">*</span></div>
+        <div class="row2">
+          <div>
+            <input type="text" id="first" placeholder="First Name" required>
+            <div class="sub">First Name</div>
+          </div>
+          <div>
+            <input type="text" id="last" placeholder="Last Name" required>
+            <div class="sub">Last Name</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="flabel">Office or Department <span class="req">*</span></div>
+        <input type="text" id="office" placeholder="e.g. OVPDx" required>
+      </div>
+
+      <div class="field">
+        <div class="flabel">Date <span class="req">*</span></div>
+        <input type="date" id="date" required>
+        <div class="sub">Date</div>
+      </div>
+
+      <div class="field">
+        <div class="flabel">Signature <span class="req">*</span></div>
+        <div class="sig-wrap">
+          <canvas id="sig" width="1040" height="380"></canvas>
+          <div class="sig-base"></div>
+          <div class="sig-x">&times;</div>
+        </div>
+        <div class="sig-tools">
+          <button type="button" class="mini" id="clearSig">Clear signature</button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn">Submit Attendance</button>
+      <div class="msg" id="msg"></div>
+    </form>
+
+    <div class="roster">
+      <div class="roster-head">
+        <h2>Checked In <span class="count-pill" id="count">(0)</span></h2>
+        <div class="roster-actions">
+          <select id="eventFilter" class="filter-sel" title="Show / export a specific meeting"></select>
+          <button class="btn btn-pdf small" id="exportPdf">Export as PDF</button>
+          <button class="btn btn-clear" id="refresh">Refresh</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>Full Name</th><th>Office / Department</th><th>Date</th><th>Signature</th></tr></thead>
+        <tbody id="rosterBody"></tbody>
+      </table>
+      <div class="empty" id="emptyState">No one has checked in yet.</div>
+      <p class="sub" style="margin-top:14px;">Check-ins are saved to your Google Sheet and shared across devices. To remove an entry, edit the sheet directly, then press Refresh.</p>
+    </div>
+  </div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+  // ---- default date = today ----
+  (function(){ const d=new Date(); const iso=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); $('date').value=iso; })();
+
+  // ---- persist the event/meeting name ----
+  const EVKEY='ovpdx_event_v1';
+  try{ const ev=localStorage.getItem(EVKEY); if(ev) $('event').value=ev; }catch(e){}
+  $('event').addEventListener('input', ()=>{ try{ localStorage.setItem(EVKEY, $('event').value); }catch(e){} });
+
+  // ---- signature pad ----
+  const canvas = $('sig'); const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 3; ctx.lineJoin='round'; ctx.lineCap='round'; ctx.strokeStyle='#1a1a1a';
+  let drawing=false, hasSig=false;
+  function P(e){ const r=canvas.getBoundingClientRect(); return { x:(e.clientX-r.left)*(canvas.width/r.width), y:(e.clientY-r.top)*(canvas.height/r.height) }; }
+  canvas.addEventListener('pointerdown', e=>{ e.preventDefault(); drawing=true; hasSig=true; const p=P(e); ctx.beginPath(); ctx.moveTo(p.x,p.y); try{canvas.setPointerCapture(e.pointerId);}catch(_){} });
+  canvas.addEventListener('pointermove', e=>{ if(!drawing) return; const p=P(e); ctx.lineTo(p.x,p.y); ctx.stroke(); });
+  canvas.addEventListener('pointerup', ()=> drawing=false );
+  canvas.addEventListener('pointerleave', ()=> drawing=false );
+  function clearSig(){ ctx.clearRect(0,0,canvas.width,canvas.height); hasSig=false; }
+  $('clearSig').addEventListener('click', clearSig);
+
+  // ---- records: saved to Google Sheet via Apps Script, with local cache ----
+  // Paste your deployed Apps Script Web App URL below (see the setup steps provided with this file):
+  const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyyarcHZsZGnhW1i1h6XNbHuZNzWEn_nLiOfd5MyTK4nTCT4bfeiqg8Av1MWzElgNvw/exec';
+
+  const KEY='ovpdx_attendance_v1';
+  let roster = [];
+  try{ const s=localStorage.getItem(KEY); if(s) roster=JSON.parse(s)||[]; }catch(e){}
+  function save(){ try{ localStorage.setItem(KEY, JSON.stringify(roster)); }catch(e){} }
+  const serverOn = () => SCRIPT_URL && !SCRIPT_URL.includes('PASTE_YOUR');
+
+  // downscale the signature so it stays small in the sheet
+  function smallSig(){ const t=document.createElement('canvas'); t.width=380; t.height=140;
+    const tc=t.getContext('2d'); tc.drawImage(canvas,0,0,t.width,t.height); return t.toDataURL('image/png'); }
+
+  async function refreshFromServer(){
+    if(!serverOn()) return;
+    const rf=$('refresh'); if(rf){ rf.disabled=true; rf.textContent='Loading\u2026'; }
+    try{
+      const res=await fetch(SCRIPT_URL, {method:'GET'});
+      const data=await res.json();
+      if(Array.isArray(data.records)){ roster=data.records; save(); rebuildFilter(); render(); }
+    }catch(e){ /* offline: keep the cached list */ }
+    if(rf){ rf.disabled=false; rf.textContent='Refresh'; }
+  }
+
+  function eventsList(){ const s=new Set(); roster.forEach(r=>{ if(r.event) s.add(String(r.event).trim()); }); return [...s].sort((a,b)=>a.localeCompare(b)); }
+  function rebuildFilter(preferred){
+    const sel=$('eventFilter'); const prev = (preferred!==undefined ? preferred : sel.value);
+    const evs=eventsList();
+    sel.innerHTML='';
+    const all=document.createElement('option'); all.value='__ALL__'; all.textContent='All events ('+roster.length+')'; sel.appendChild(all);
+    evs.forEach(ev=>{ const n=roster.filter(r=>String(r.event||'').trim()===ev).length;
+      const o=document.createElement('option'); o.value=ev; o.textContent=ev+' ('+n+')'; sel.appendChild(o); });
+    if(prev && (prev==='__ALL__' || evs.includes(prev))) sel.value=prev;
+    else { const cur=($('event').value||'').trim(); sel.value = evs.includes(cur)? cur : '__ALL__'; }
+  }
+  function currentFilter(){ return $('eventFilter').value; }
+  function filtered(){ const f=currentFilter(); if(!f || f==='__ALL__') return roster.slice();
+    const fl=f.toLowerCase(); return roster.filter(r=>String(r.event||'').trim().toLowerCase()===fl); }
+
+  function render(){
+    const list=filtered();
+    const body=$('rosterBody'); body.innerHTML='';
+    $('count').textContent='('+list.length+')';
+    $('emptyState').style.display = list.length? 'none':'block';
+    list.forEach((r,i)=>{
+      const tr=document.createElement('tr');
+      tr.innerHTML = `<td class="num">${i+1}</td>`+
+        `<td>${esc(r.first)} ${esc(r.last)}</td>`+
+        `<td>${esc(r.office)}</td>`+
+        `<td>${esc(r.date)}</td>`+
+        `<td>${r.sig? '<img class="signm" src="'+r.sig+'" alt="signature">':''}</td>`;
+      body.appendChild(tr);
+    });
+  }
+  $('eventFilter').addEventListener('change', render);
+  rebuildFilter(); render();
+
+  // ---- submit ----
+  $('attForm').addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    const first=$('first').value.trim(), last=$('last').value.trim(), office=$('office').value.trim(), date=$('date').value;
+    const msg=$('msg'); msg.className='msg';
+    if(!$('event').value.trim()){ msg.textContent='Please enter the event / meeting name first.'; msg.classList.add('err'); $('event').focus(); return; }
+    if(!first || !last || !office || !date){ msg.textContent='Please fill in all required fields.'; msg.classList.add('err'); return; }
+    if(!hasSig){ msg.textContent='Please add your signature above before submitting.'; msg.classList.add('err'); return; }
+    const entry = { event:$('event').value.trim(), first, last, office, date, sig:smallSig() };
+    roster.push(entry); save(); rebuildFilter(entry.event); render();
+    $('first').value=''; $('last').value=''; $('office').value=''; clearSig(); $('first').focus();
+    msg.className='msg ok';
+    if(serverOn()){
+      msg.textContent='Saving '+first+' '+last+'\u2026';
+      try{
+        await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(entry) });
+        await refreshFromServer();
+        msg.textContent='\u2713 '+first+' '+last+' checked in and saved to the sheet.';
+      }catch(err){
+        msg.textContent='\u2713 '+first+' '+last+' checked in (saved on this device; reconnect to sync to the sheet).';
+      }
+    } else {
+      msg.textContent='\u2713 '+first+' '+last+' checked in. (Add your Google Sheet link in the code to retain records.)';
+    }
+    setTimeout(()=>{ if(msg.classList.contains('ok')) msg.textContent=''; }, 4500);
+  });
+
+  // ---- refresh from sheet + load existing records on open ----
+  $('refresh').addEventListener('click', refreshFromServer);
+  refreshFromServer();
+
+  // ---- export PDF ----
+  $('exportPdf').addEventListener('click', ()=>{
+    const list = filtered();
+    if(!list.length){ alert('No attendance entries to export for this selection.'); return; }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit:'pt', format:'a4' });
+    const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight(), M=40;
+    const f=currentFilter();
+    const eventName = ((f && f!=='__ALL__') ? f : ($('event').value.trim() || (list[0] && list[0].event) || 'All Events')).slice(0,60);
+
+    function header(){
+      doc.setFillColor(94,32,48); doc.rect(0,0,W,94,'F');
+      doc.setTextColor(255,255,255); doc.setFont('times','bold'); doc.setFontSize(22); doc.text('Attendance Sheet', M, 36);
+      doc.setFont('times','bold'); doc.setFontSize(13); doc.text(eventName, M, 60);
+      doc.setFont('times','normal'); doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, 78);
+    }
+    const cN=M, cName=M+22, cOffice=M+192, cDate=M+320, cSig=M+382; // sig img 92 wide -> ends at M+474
+    function colHeads(y){
+      doc.setTextColor(94,32,48); doc.setFont('times','bold'); doc.setFontSize(11);
+      doc.text('#',cN,y); doc.text('Full Name',cName,y); doc.text('Office / Department',cOffice,y);
+      doc.text('Date',cDate,y); doc.text('Signature',cSig,y);
+      doc.setDrawColor(94,32,48); doc.line(M,y+5,W-M,y+5);
+    }
+    header();
+    let y=118; colHeads(y); y+=20;
+    doc.setTextColor(30,30,30); doc.setFont('times','normal'); doc.setFontSize(11);
+
+    list.forEach((r,i)=>{
+      if(y > H-70){ doc.addPage(); header(); y=118; colHeads(y); y+=20; doc.setTextColor(30,30,30); doc.setFont('times','normal'); doc.setFontSize(11); }
+      const baseY=y;
+      doc.text(String(i+1), cN, baseY+22);
+      doc.text((r.first+' '+r.last).slice(0,28), cName, baseY+22);
+      doc.text((r.office||'').slice(0,22), cOffice, baseY+22);
+      doc.text(r.date||'', cDate, baseY+22);
+      if(r.sig){ try{ doc.addImage(r.sig,'PNG', cSig, baseY+2, 92, 34); }catch(e){} }
+      y += 42; doc.setDrawColor(215,210,205); doc.line(M, y-6, W-M, y-6);
+    });
+
+    doc.setFontSize(9); doc.setTextColor(140,130,125);
+    doc.text('Total present: '+list.length+'   \u00b7   Generated '+new Date().toLocaleString(), M, H-24);
+    const fnEvent = eventName.replace(/[^a-z0-9]+/gi,'_').replace(/^_+|_+$/g,'').slice(0,40) || 'Event';
+    const fnDate = (list[0] && list[0].date) ? list[0].date : new Date().toISOString().slice(0,10);
+    doc.save('OVPDx_Attendance_'+fnEvent+'_'+fnDate+'.pdf');
+  });
+</script>
+</body>
+</html>
