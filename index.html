@@ -100,6 +100,12 @@
       </div>
 
       <div class="field">
+        <div class="flabel">Meeting Time</div>
+        <input type="text" id="meetingTime" placeholder="e.g. 10 AM - 11 AM">
+        <div class="sub">Fills in automatically for saved events; you can still edit it.</div>
+      </div>
+
+      <div class="field">
         <div class="flabel">Full Name <span class="req">*</span></div>
         <div class="row2">
           <div>
@@ -168,7 +174,7 @@
   // ---- saved / preset events: name, venue, date (yyyy-mm-dd) ----
   // Add more events here any time — they'll show up in the dropdown automatically.
   const PRESET_EVENTS = [
-    { name: 'Meeting with COA-ITAO', venue: 'Room 211 (Conference Room) ITDC', date: '2026-08-17' }
+    { name: 'Meeting with COA-ITAO', venue: 'Room 211 (Conference Room) ITDC', date: '2026-08-17', time: '10 AM - 11 AM' }
   ];
   function findPreset(name){ return PRESET_EVENTS.find(e => e.name === name); }
 
@@ -192,17 +198,20 @@
       $('event').style.display='block';
       $('event').value='';
       $('venue').value='';
+      $('meetingTime').value='';
       $('event').focus();
     } else if(val === ''){
       $('event').style.display='none';
       $('event').value='';
       $('venue').value='';
+      $('meetingTime').value='';
     } else {
       $('event').style.display='none';
       $('event').value = val;
       const preset = findPreset(val);
       if(preset){
         $('venue').value = preset.venue || '';
+        $('meetingTime').value = preset.time || '';
         if(preset.date) $('date').value = preset.date;
       }
     }
@@ -291,6 +300,16 @@
     }
     return '';
   }
+  function timeForFilter(){
+    const f=currentFilter();
+    if(f && f!=='__ALL__'){
+      const preset=findPreset(f);
+      if(preset && preset.time) return preset.time;
+      const rec = roster.find(r=>String(r.event||'').trim()===f && r.time);
+      if(rec) return rec.time;
+    }
+    return '';
+  }
 
   function render(){
     const list=filtered();
@@ -298,7 +317,9 @@
     $('count').textContent='('+list.length+')';
     $('emptyState').style.display = list.length? 'none':'block';
     const venue = venueForFilter();
-    $('venueDisplay').textContent = venue ? ('Venue: '+venue) : '';
+    const time = timeForFilter();
+    const bits = [venue ? ('Venue: '+venue) : '', time ? ('Time: '+time) : ''].filter(Boolean);
+    $('venueDisplay').textContent = bits.join('   \u00b7   ');
     list.forEach((r,i)=>{
       const tr=document.createElement('tr');
       tr.innerHTML = `<td class="num">${i+1}</td>`+
@@ -317,12 +338,13 @@
     e.preventDefault();
     const eventName = currentEventName();
     const venue = $('venue').value.trim();
+    const time = $('meetingTime').value.trim();
     const first=$('first').value.trim(), last=$('last').value.trim(), office=$('office').value.trim(), date=$('date').value;
     const msg=$('msg'); msg.className='msg';
     if(!eventName){ msg.textContent='Please select (or type) the event / meeting name first.'; msg.classList.add('err'); $('eventSelect').focus(); return; }
     if(!first || !last || !office || !date){ msg.textContent='Please fill in all required fields.'; msg.classList.add('err'); return; }
     if(!hasSig){ msg.textContent='Please add your signature above before submitting.'; msg.classList.add('err'); return; }
-    const entry = { event:eventName, venue, first, last, office, date, sig:smallSig() };
+    const entry = { event:eventName, venue, time, first, last, office, date, sig:smallSig() };
     roster.push(entry); save(); rebuildFilter(entry.event); render();
     $('first').value=''; $('last').value=''; $('office').value=''; clearSig(); $('first').focus();
     msg.className='msg ok';
@@ -347,24 +369,31 @@
 
   // ---- export PDF ----
   $('exportPdf').addEventListener('click', ()=>{
+    const f = currentFilter();
+    if(!f || f === '__ALL__'){
+      alert('Please select a specific event from the dropdown above before exporting — this keeps each PDF to one event only.');
+      $('eventFilter').focus();
+      return;
+    }
     const list = filtered();
     if(!list.length){ alert('No attendance entries to export for this selection.'); return; }
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit:'pt', format:'a4' });
     const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight(), M=40;
-    const f=currentFilter();
     const eventName = ((f && f!=='__ALL__') ? f : (currentEventName() || (list[0] && list[0].event) || 'All Events')).slice(0,60);
     const activeVenue = venueForFilter() || $('venue').value.trim() || '';
-    const hasVenue = !!activeVenue;
-    const headH = hasVenue ? 108 : 94;
-    const tableStartY = hasVenue ? 132 : 118;
+    const activeTime = timeForFilter() || $('meetingTime').value.trim() || '';
+    const metaLine = [activeVenue ? ('Venue: '+activeVenue) : '', activeTime ? ('Time: '+activeTime) : ''].filter(Boolean).join('   \u00b7   ');
+    const hasMeta = !!metaLine;
+    const headH = hasMeta ? 108 : 94;
+    const tableStartY = hasMeta ? 132 : 118;
 
     function header(){
       doc.setFillColor(94,32,48); doc.rect(0,0,W,headH,'F');
       doc.setTextColor(255,255,255); doc.setFont('times','bold'); doc.setFontSize(22); doc.text('Attendance Sheet', M, 36);
       doc.setFont('times','bold'); doc.setFontSize(13); doc.text(eventName, M, 60);
-      if(hasVenue){
-        doc.setFont('times','normal'); doc.setFontSize(11); doc.text('Venue: '+activeVenue, M, 78);
+      if(hasMeta){
+        doc.setFont('times','normal'); doc.setFontSize(11); doc.text(metaLine, M, 78);
         doc.setFont('times','normal'); doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, 96);
       } else {
         doc.setFont('times','normal'); doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, 78);
