@@ -29,11 +29,13 @@
   .row2{ display:grid; grid-template-columns:1fr 1fr; gap:34px; }
   @media(max-width:640px){ .row2{ grid-template-columns:1fr; gap:18px; } }
   .sub{ font-size:15px; color:var(--maroon); margin-top:8px; }
-  input[type="text"], input[type="date"]{
+  input[type="text"], input[type="date"], select{
     width:100%; padding:14px 16px; font-family:'EB Garamond', serif; font-size:18px;
     color:var(--ink); background:#fff; border:1.5px solid var(--line); border-radius:2px; outline-offset:2px;
   }
-  input:focus{ border-color:var(--maroon); outline:2px solid var(--maroon); }
+  select{ cursor:pointer; }
+  input:focus, select:focus{ border-color:var(--maroon); outline:2px solid var(--maroon); }
+  input[readonly]{ background:#faf8f5; color:var(--muted); }
 
   /* signature */
   .sig-wrap{ position:relative; width:100%; max-width:520px; }
@@ -55,8 +57,9 @@
 
   /* roster */
   .roster{ border-top:1px solid var(--line); padding:28px 46px 40px; }
-  .roster-head{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+  .roster-head{ display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
   .roster-head h2{ font-family:'Playfair Display',serif; font-size:24px; color:var(--maroon); margin:0; }
+  .roster-venue{ font-size:15px; color:var(--muted); margin-top:4px; }
   .roster-actions{ display:flex; gap:10px; }
   .btn-pdf{ background:var(--maroon); } .btn-pdf:hover{ background:var(--maroon-dark); }
   .btn-clear{ background:#8a7d78; font-size:16px; padding:12px 18px; } .btn-clear:hover{ background:#6f635f; }
@@ -76,14 +79,24 @@
   <div class="sheet">
     <header>
       <h1>Attendance Sheet</h1>
-      <p>Enter your full name and office, then submit to check in for today&rsquo;s event.</p>
+      <p>Select the event, enter your name and office, then submit to check in.</p>
     </header>
 
     <form id="attForm" autocomplete="on">
       <div class="field">
-        <div class="flabel">Event / Meeting Name <span class="req">*</span></div>
-        <input type="text" id="event" placeholder="e.g. 63rd OVPDx Management Meeting" required>
-        <div class="sub">Set once for this session &mdash; it appears on the exported sheet.</div>
+        <div class="flabel">Event / Meeting <span class="req">*</span></div>
+        <select id="eventSelect">
+          <option value="">Select an event…</option>
+          <option value="__other__">Other (type manually)</option>
+        </select>
+        <div class="sub">Pick from the saved list, or choose "Other" to type a new event name.</div>
+        <input type="text" id="event" placeholder="Type the event / meeting name" style="margin-top:10px; display:none;">
+      </div>
+
+      <div class="field">
+        <div class="flabel">Venue</div>
+        <input type="text" id="venue" placeholder="e.g. Room 211 (Conference Room) ITDC">
+        <div class="sub">Fills in automatically for saved events; you can still edit it.</div>
       </div>
 
       <div class="field">
@@ -129,7 +142,10 @@
 
     <div class="roster">
       <div class="roster-head">
-        <h2>Checked In <span class="count-pill" id="count">(0)</span></h2>
+        <div>
+          <h2>Checked In <span class="count-pill" id="count">(0)</span></h2>
+          <div class="roster-venue" id="venueDisplay"></div>
+        </div>
         <div class="roster-actions">
           <select id="eventFilter" class="filter-sel" title="Show / export a specific meeting"></select>
           <button class="btn btn-pdf small" id="exportPdf">Export as PDF</button>
@@ -149,13 +165,69 @@
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
-  // ---- default date = today ----
+  // ---- saved / preset events: name, venue, date (yyyy-mm-dd) ----
+  // Add more events here any time — they'll show up in the dropdown automatically.
+  const PRESET_EVENTS = [
+    { name: 'Meeting with COA-ITAO', venue: 'Room 211 (Conference Room) ITDC', date: '2026-08-17' }
+  ];
+  function findPreset(name){ return PRESET_EVENTS.find(e => e.name === name); }
+
+  function populateEventSelect(){
+    const sel = $('eventSelect');
+    const otherOpt = sel.querySelector('option[value="__other__"]');
+    PRESET_EVENTS.forEach(ev=>{
+      const o = document.createElement('option');
+      o.value = ev.name; o.textContent = ev.name;
+      sel.insertBefore(o, otherOpt);
+    });
+  }
+  populateEventSelect();
+
+  // ---- default date = today (overridden if a preset event with its own date is chosen) ----
   (function(){ const d=new Date(); const iso=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); $('date').value=iso; })();
 
-  // ---- persist the event/meeting name ----
-  const EVKEY='ovpdx_event_v1';
-  try{ const ev=localStorage.getItem(EVKEY); if(ev) $('event').value=ev; }catch(e){}
+  // ---- event select behavior ----
+  function applyEventSelection(val){
+    if(val === '__other__'){
+      $('event').style.display='block';
+      $('event').value='';
+      $('venue').value='';
+      $('event').focus();
+    } else if(val === ''){
+      $('event').style.display='none';
+      $('event').value='';
+      $('venue').value='';
+    } else {
+      $('event').style.display='none';
+      $('event').value = val;
+      const preset = findPreset(val);
+      if(preset){
+        $('venue').value = preset.venue || '';
+        if(preset.date) $('date').value = preset.date;
+      }
+    }
+  }
+  $('eventSelect').addEventListener('change', ()=>{
+    applyEventSelection($('eventSelect').value);
+    try{ localStorage.setItem(EVKEY, $('eventSelect').value === '__other__' ? '' : $('eventSelect').value); }catch(e){}
+  });
   $('event').addEventListener('input', ()=>{ try{ localStorage.setItem(EVKEY, $('event').value); }catch(e){} });
+
+  // ---- persist the last-used event ----
+  const EVKEY='ovpdx_event_v2';
+  try{
+    const ev = localStorage.getItem(EVKEY);
+    if(ev){
+      const preset = findPreset(ev);
+      if(preset){ $('eventSelect').value = ev; applyEventSelection(ev); }
+      else { $('eventSelect').value = '__other__'; applyEventSelection('__other__'); $('event').value = ev; }
+    }
+  }catch(e){}
+
+  function currentEventName(){
+    const val = $('eventSelect').value;
+    return val === '__other__' ? $('event').value.trim() : val;
+  }
 
   // ---- signature pad ----
   const canvas = $('sig'); const ctx = canvas.getContext('2d');
@@ -203,17 +275,30 @@
     evs.forEach(ev=>{ const n=roster.filter(r=>String(r.event||'').trim()===ev).length;
       const o=document.createElement('option'); o.value=ev; o.textContent=ev+' ('+n+')'; sel.appendChild(o); });
     if(prev && (prev==='__ALL__' || evs.includes(prev))) sel.value=prev;
-    else { const cur=($('event').value||'').trim(); sel.value = evs.includes(cur)? cur : '__ALL__'; }
+    else { const cur=currentEventName(); sel.value = evs.includes(cur)? cur : '__ALL__'; }
   }
   function currentFilter(){ return $('eventFilter').value; }
   function filtered(){ const f=currentFilter(); if(!f || f==='__ALL__') return roster.slice();
     const fl=f.toLowerCase(); return roster.filter(r=>String(r.event||'').trim().toLowerCase()===fl); }
+
+  function venueForFilter(){
+    const f=currentFilter();
+    if(f && f!=='__ALL__'){
+      const preset=findPreset(f);
+      if(preset && preset.venue) return preset.venue;
+      const rec = roster.find(r=>String(r.event||'').trim()===f && r.venue);
+      if(rec) return rec.venue;
+    }
+    return '';
+  }
 
   function render(){
     const list=filtered();
     const body=$('rosterBody'); body.innerHTML='';
     $('count').textContent='('+list.length+')';
     $('emptyState').style.display = list.length? 'none':'block';
+    const venue = venueForFilter();
+    $('venueDisplay').textContent = venue ? ('Venue: '+venue) : '';
     list.forEach((r,i)=>{
       const tr=document.createElement('tr');
       tr.innerHTML = `<td class="num">${i+1}</td>`+
@@ -230,12 +315,14 @@
   // ---- submit ----
   $('attForm').addEventListener('submit', async (e)=>{
     e.preventDefault();
+    const eventName = currentEventName();
+    const venue = $('venue').value.trim();
     const first=$('first').value.trim(), last=$('last').value.trim(), office=$('office').value.trim(), date=$('date').value;
     const msg=$('msg'); msg.className='msg';
-    if(!$('event').value.trim()){ msg.textContent='Please enter the event / meeting name first.'; msg.classList.add('err'); $('event').focus(); return; }
+    if(!eventName){ msg.textContent='Please select (or type) the event / meeting name first.'; msg.classList.add('err'); $('eventSelect').focus(); return; }
     if(!first || !last || !office || !date){ msg.textContent='Please fill in all required fields.'; msg.classList.add('err'); return; }
     if(!hasSig){ msg.textContent='Please add your signature above before submitting.'; msg.classList.add('err'); return; }
-    const entry = { event:$('event').value.trim(), first, last, office, date, sig:smallSig() };
+    const entry = { event:eventName, venue, first, last, office, date, sig:smallSig() };
     roster.push(entry); save(); rebuildFilter(entry.event); render();
     $('first').value=''; $('last').value=''; $('office').value=''; clearSig(); $('first').focus();
     msg.className='msg ok';
@@ -266,13 +353,22 @@
     const doc = new jsPDF({ unit:'pt', format:'a4' });
     const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight(), M=40;
     const f=currentFilter();
-    const eventName = ((f && f!=='__ALL__') ? f : ($('event').value.trim() || (list[0] && list[0].event) || 'All Events')).slice(0,60);
+    const eventName = ((f && f!=='__ALL__') ? f : (currentEventName() || (list[0] && list[0].event) || 'All Events')).slice(0,60);
+    const activeVenue = venueForFilter() || $('venue').value.trim() || '';
+    const hasVenue = !!activeVenue;
+    const headH = hasVenue ? 108 : 94;
+    const tableStartY = hasVenue ? 132 : 118;
 
     function header(){
-      doc.setFillColor(94,32,48); doc.rect(0,0,W,94,'F');
+      doc.setFillColor(94,32,48); doc.rect(0,0,W,headH,'F');
       doc.setTextColor(255,255,255); doc.setFont('times','bold'); doc.setFontSize(22); doc.text('Attendance Sheet', M, 36);
       doc.setFont('times','bold'); doc.setFontSize(13); doc.text(eventName, M, 60);
-      doc.setFont('times','normal'); doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, 78);
+      if(hasVenue){
+        doc.setFont('times','normal'); doc.setFontSize(11); doc.text('Venue: '+activeVenue, M, 78);
+        doc.setFont('times','normal'); doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, 96);
+      } else {
+        doc.setFont('times','normal'); doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, 78);
+      }
     }
     const cN=M, cName=M+22, cOffice=M+192, cDate=M+320, cSig=M+382; // sig img 92 wide -> ends at M+474
     function colHeads(y){
@@ -282,11 +378,11 @@
       doc.setDrawColor(94,32,48); doc.line(M,y+5,W-M,y+5);
     }
     header();
-    let y=118; colHeads(y); y+=20;
+    let y=tableStartY; colHeads(y); y+=20;
     doc.setTextColor(30,30,30); doc.setFont('times','normal'); doc.setFontSize(11);
 
     list.forEach((r,i)=>{
-      if(y > H-70){ doc.addPage(); header(); y=118; colHeads(y); y+=20; doc.setTextColor(30,30,30); doc.setFont('times','normal'); doc.setFontSize(11); }
+      if(y > H-70){ doc.addPage(); header(); y=tableStartY; colHeads(y); y+=20; doc.setTextColor(30,30,30); doc.setFont('times','normal'); doc.setFontSize(11); }
       const baseY=y;
       doc.text(String(i+1), cN, baseY+22);
       doc.text((r.first+' '+r.last).slice(0,28), cName, baseY+22);
