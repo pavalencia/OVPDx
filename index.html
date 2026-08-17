@@ -55,6 +55,15 @@
   .msg{ margin-top:14px; font-size:16px; min-height:20px; }
   .msg.err{ color:#c0392b; } .msg.ok{ color:var(--green); }
 
+  /* success toast */
+  .toast{ position:fixed; top:24px; left:50%; transform:translateX(-50%) translateY(-16px);
+    background:var(--green); color:#fff; padding:16px 26px; border-radius:6px; font-size:17px; font-weight:600;
+    box-shadow:0 14px 30px -10px rgba(0,0,0,.45); display:flex; align-items:center; gap:10px;
+    opacity:0; pointer-events:none; transition:opacity .25s ease, transform .25s ease; z-index:999; }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast .tick{ width:22px; height:22px; border-radius:50%; background:#fff; color:var(--green);
+    display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; flex:none; }
+
   /* roster */
   .roster{ border-top:1px solid var(--line); padding:28px 46px 40px; }
   .roster-head{ display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
@@ -77,6 +86,7 @@
 </head>
 <body>
   <div class="sheet">
+    <div class="toast" id="toast"><span class="tick">&#10003;</span><span id="toastText">Attendance submitted successfully</span></div>
     <header>
       <h1>Attendance Sheet</h1>
       <p>Select the event, enter your name and office, then submit to check in.</p>
@@ -174,7 +184,7 @@
   // ---- saved / preset events: name, venue, date (yyyy-mm-dd) ----
   // Add more events here any time — they'll show up in the dropdown automatically.
   const PRESET_EVENTS = [
-    { name: 'Meeting with COA-ITAO', venue: 'Room 211 (Conference Room) ITDC', date: '2026-08-17', time: '10 AM - 11 AM' }
+    { name: 'Meeting with COA-ITAO', venue: 'Room 211 (Conference Room) ITDC', date: '2026-08-17', time: '10 AM - 12 PM' }
   ];
   function findPreset(name){ return PRESET_EVENTS.find(e => e.name === name); }
 
@@ -250,6 +260,16 @@
   function clearSig(){ ctx.clearRect(0,0,canvas.width,canvas.height); hasSig=false; }
   $('clearSig').addEventListener('click', clearSig);
 
+  // ---- success toast ----
+  let toastTimer=null;
+  function showToast(text){
+    const t=$('toast');
+    $('toastText').textContent = text || 'Attendance submitted successfully';
+    t.classList.add('show');
+    if(toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> t.classList.remove('show'), 3200);
+  }
+
   // ---- records: saved to Google Sheet via Apps Script, with local cache ----
   // Paste your deployed Apps Script Web App URL below (see the setup steps provided with this file):
   const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyyarcHZsZGnhW1i1h6XNbHuZNzWEn_nLiOfd5MyTK4nTCT4bfeiqg8Av1MWzElgNvw/exec';
@@ -289,6 +309,17 @@
   function currentFilter(){ return $('eventFilter').value; }
   function filtered(){ const f=currentFilter(); if(!f || f==='__ALL__') return roster.slice();
     const fl=f.toLowerCase(); return roster.filter(r=>String(r.event||'').trim().toLowerCase()===fl); }
+
+  // Collapse repeat check-ins by the same person (same first+last+office) down to their
+  // most recent entry, so one person signing in twice for the same event only appears once.
+  function dedupeByPerson(list){
+    const map = new Map();
+    list.forEach(r=>{
+      const key = [String(r.first||'').trim().toLowerCase(), String(r.last||'').trim().toLowerCase(), String(r.office||'').trim().toLowerCase()].join('|');
+      map.set(key, r); // later entries overwrite earlier ones, keeping the most recent
+    });
+    return [...map.values()];
+  }
 
   function venueForFilter(){
     const f=currentFilter();
@@ -348,6 +379,7 @@
     roster.push(entry); save(); rebuildFilter(entry.event); render();
     $('first').value=''; $('last').value=''; $('office').value=''; clearSig(); $('first').focus();
     msg.className='msg ok';
+    showToast('\u2713 '+first+' '+last+' checked in successfully');
     if(serverOn()){
       msg.textContent='Saving '+first+' '+last+'\u2026';
       try{
@@ -375,7 +407,7 @@
       $('eventFilter').focus();
       return;
     }
-    const list = filtered();
+    const list = dedupeByPerson(filtered());
     if(!list.length){ alert('No attendance entries to export for this selection.'); return; }
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit:'pt', format:'a4' });
