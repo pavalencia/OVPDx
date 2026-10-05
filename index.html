@@ -172,7 +172,7 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>#</th><th>Full Name</th><th>Office / Department</th><th>Date</th><th>Time In</th><th>Control No.</th><th>Signature</th></tr></thead>
+          <thead><tr><th>#</th><th>Full Name</th><th>Office / Department</th><th>Date</th><th>Timestamp</th><th>Control No.</th><th>Signature</th></tr></thead>
           <tbody id="rosterBody"></tbody>
         </table>
       </div>
@@ -442,14 +442,14 @@
     function colHeads(y){
       doc.setTextColor(94,32,48); doc.setFont('times','bold'); doc.setFontSize(10.5);
       doc.text('#',cN,y); doc.text('Full Name',cName,y); doc.text('Office',cOffice,y);
-      doc.text('Date / Time In',cDate,y); doc.text('Control No.',cId,y); doc.text('Signature',cSig,y);
+      doc.text('Date / Timestamp',cDate,y); doc.text('Control No.',cId,y); doc.text('Signature',cSig,y);
       doc.setDrawColor(94,32,48); doc.line(M,y+5,W-M,y+5);
     }
     function footer(page){
       doc.setFont('times','normal'); doc.setFontSize(8.5); doc.setTextColor(120,110,105);
       doc.text('Total present: '+list.length+'   \u00b7   Integrity code: '+integrity+'   \u00b7   Generated '+
         new Date().toLocaleString('en-PH',PH)+'   \u00b7   Page '+page, M, H-30);
-      doc.text('Time In is recorded by the server. Control numbers and record IDs match the OVPDx audit-protected sheet; see the Audit Trail page. The integrity code can be re-computed from the sheet to confirm no entry was changed.', M, H-18, { maxWidth: W-2*M });
+      doc.text('Timestamps are recorded by the server. Control numbers and record IDs match the OVPDx audit-protected sheet; see the Audit Trail page. The integrity code can be re-computed from the sheet to confirm no entry was changed.', M, H-18, { maxWidth: W-2*M });
     }
     let page=1;
     header(); let y=tableStartY; colHeads(y); y+=20;
