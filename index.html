@@ -37,7 +37,6 @@
   input:focus, select:focus{ border-color:var(--maroon); outline:2px solid var(--maroon); }
   input[readonly]{ background:#faf8f5; color:var(--muted); }
 
-  /* signature */
   .sig-wrap{ position:relative; width:100%; max-width:520px; }
   canvas#sig{ width:100%; height:190px; border:1.5px solid var(--line); border-radius:2px; background:#fff;
     touch-action:none; cursor:crosshair; display:block; }
@@ -52,10 +51,11 @@
     border:none; border-radius:2px; padding:15px 30px; cursor:pointer; }
   .btn:hover{ background:var(--green-dark); }
   .btn:active{ transform:translateY(1px); }
+  .btn:disabled{ opacity:.6; cursor:wait; }
   .msg{ margin-top:14px; font-size:16px; min-height:20px; }
   .msg.err{ color:#c0392b; } .msg.ok{ color:var(--green); }
+  .privacy{ font-size:14px; color:var(--muted); margin-top:14px; max-width:640px; }
 
-  /* success toast */
   .toast{ position:fixed; top:24px; left:50%; transform:translateX(-50%) translateY(-16px);
     background:var(--green); color:#fff; padding:16px 26px; border-radius:6px; font-size:17px; font-weight:600;
     box-shadow:0 14px 30px -10px rgba(0,0,0,.45); display:flex; align-items:center; gap:10px;
@@ -64,22 +64,23 @@
   .toast .tick{ width:22px; height:22px; border-radius:50%; background:#fff; color:var(--green);
     display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700; flex:none; }
 
-  /* roster */
   .roster{ border-top:1px solid var(--line); padding:28px 46px 40px; }
   .roster-head{ display:flex; align-items:flex-start; justify-content:space-between; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
   .roster-head h2{ font-family:'Playfair Display',serif; font-size:24px; color:var(--maroon); margin:0; }
   .roster-venue{ font-size:15px; color:var(--muted); margin-top:4px; }
-  .roster-actions{ display:flex; gap:10px; }
+  .roster-actions{ display:flex; gap:10px; flex-wrap:wrap; }
   .btn-pdf{ background:var(--maroon); } .btn-pdf:hover{ background:var(--maroon-dark); }
   .btn-clear{ background:#8a7d78; font-size:16px; padding:12px 18px; } .btn-clear:hover{ background:#6f635f; }
   .btn.small{ font-size:16px; padding:12px 18px; }
   .filter-sel{ font-family:'EB Garamond',serif; font-size:16px; padding:11px 12px; border:1.5px solid var(--line); border-radius:2px; background:#fff; color:var(--ink); max-width:260px; }
+  .table-wrap{ overflow-x:auto; }
   table{ width:100%; border-collapse:collapse; }
   th,td{ text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); font-size:17px; vertical-align:middle; }
   th{ color:var(--maroon); font-weight:600; font-size:15px; letter-spacing:.02em; }
   td .signm{ height:40px; }
   td.num{ color:var(--muted); width:34px; }
-  .rm{ color:#c0392b; cursor:pointer; border:none; background:none; font-size:18px; }
+  td.rid{ font-family:Consolas, 'Courier New', monospace; font-size:14px; color:var(--muted); }
+  td.tin{ font-size:15px; white-space:nowrap; }
   .empty{ color:var(--muted); font-style:italic; padding:14px 8px; }
   .count-pill{ font-size:15px; color:var(--muted); }
 </style>
@@ -152,8 +153,9 @@
         </div>
       </div>
 
-      <button type="submit" class="btn">Submit Attendance</button>
+      <button type="submit" class="btn" id="submitBtn">Submit Attendance</button>
       <div class="msg" id="msg"></div>
+      <p class="privacy">By submitting, you agree that OVPDx records your name, office, signature, and the time of submission for attendance and audit purposes, in line with the Data Privacy Act of 2012.</p>
     </form>
 
     <div class="roster">
@@ -168,12 +170,14 @@
           <button class="btn btn-clear" id="refresh">Refresh</button>
         </div>
       </div>
-      <table>
-        <thead><tr><th>#</th><th>Full Name</th><th>Office / Department</th><th>Date</th><th>Signature</th></tr></thead>
-        <tbody id="rosterBody"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Full Name</th><th>Office / Department</th><th>Date</th><th>Time In</th><th>Control No.</th><th>Signature</th></tr></thead>
+          <tbody id="rosterBody"></tbody>
+        </table>
+      </div>
       <div class="empty" id="emptyState">No one has checked in yet.</div>
-      <p class="sub" style="margin-top:14px;">Check-ins are saved to your Google Sheet and shared across devices. To remove an entry, edit the sheet directly, then press Refresh.</p>
+      <p class="sub" style="margin-top:14px;">Every check-in gets a server timestamp and a Record ID, and is locked in the Google Sheet's audit trail. Entries can't be removed from this page.</p>
     </div>
   </div>
 
@@ -182,7 +186,6 @@
   const esc = s => String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
   // ---- saved / preset events: name, venue, date (yyyy-mm-dd) ----
-  // Add more events here any time — they'll show up in the dropdown automatically.
   const PRESET_EVENTS = [
     { name: 'Meeting with COA-ITAO', venue: 'Room 211 (Conference Room) ITDC', date: '2026-08-17', time: '10 AM - 12 PM' }
   ];
@@ -199,25 +202,16 @@
   }
   populateEventSelect();
 
-  // ---- default date = today (overridden if a preset event with its own date is chosen) ----
-  (function(){ const d=new Date(); const iso=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); $('date').value=iso; })();
+  (function(){ const d=new Date(); $('date').value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
 
-  // ---- event select behavior ----
+  const EVKEY='ovpdx_event_v2';
   function applyEventSelection(val){
     if(val === '__other__'){
-      $('event').style.display='block';
-      $('event').value='';
-      $('venue').value='';
-      $('meetingTime').value='';
-      $('event').focus();
+      $('event').style.display='block'; $('event').value=''; $('venue').value=''; $('meetingTime').value=''; $('event').focus();
     } else if(val === ''){
-      $('event').style.display='none';
-      $('event').value='';
-      $('venue').value='';
-      $('meetingTime').value='';
+      $('event').style.display='none'; $('event').value=''; $('venue').value=''; $('meetingTime').value='';
     } else {
-      $('event').style.display='none';
-      $('event').value = val;
+      $('event').style.display='none'; $('event').value = val;
       const preset = findPreset(val);
       if(preset){
         $('venue').value = preset.venue || '';
@@ -231,9 +225,6 @@
     try{ localStorage.setItem(EVKEY, $('eventSelect').value === '__other__' ? '' : $('eventSelect').value); }catch(e){}
   });
   $('event').addEventListener('input', ()=>{ try{ localStorage.setItem(EVKEY, $('event').value); }catch(e){} });
-
-  // ---- persist the last-used event ----
-  const EVKEY='ovpdx_event_v2';
   try{
     const ev = localStorage.getItem(EVKEY);
     if(ev){
@@ -260,39 +251,50 @@
   function clearSig(){ ctx.clearRect(0,0,canvas.width,canvas.height); hasSig=false; }
   $('clearSig').addEventListener('click', clearSig);
 
-  // ---- success toast ----
   let toastTimer=null;
   function showToast(text){
     const t=$('toast');
-    $('toastText').textContent = text || 'Attendance submitted successfully';
+    $('toastText').textContent = text;
     t.classList.add('show');
     if(toastTimer) clearTimeout(toastTimer);
     toastTimer = setTimeout(()=> t.classList.remove('show'), 3200);
   }
 
-  // ---- records: saved to Google Sheet via Apps Script, with local cache ----
-  // Paste your deployed Apps Script Web App URL below (see the setup steps provided with this file):
+  // ---- server ----
   const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyyarcHZsZGnhW1i1h6XNbHuZNzWEn_nLiOfd5MyTK4nTCT4bfeiqg8Av1MWzElgNvw/exec';
+  const serverOn = () => SCRIPT_URL && !SCRIPT_URL.includes('PASTE_YOUR');
 
-  const KEY='ovpdx_attendance_v1';
+  const KEY='ovpdx_attendance_v2';   // read-only cache of server records
   let roster = [];
   try{ const s=localStorage.getItem(KEY); if(s) roster=JSON.parse(s)||[]; }catch(e){}
   function save(){ try{ localStorage.setItem(KEY, JSON.stringify(roster)); }catch(e){} }
-  const serverOn = () => SCRIPT_URL && !SCRIPT_URL.includes('PASTE_YOUR');
 
-  // downscale the signature so it stays small in the sheet
   function smallSig(){ const t=document.createElement('canvas'); t.width=380; t.height=140;
-    const tc=t.getContext('2d'); tc.drawImage(canvas,0,0,t.width,t.height); return t.toDataURL('image/png'); }
+    t.getContext('2d').drawImage(canvas,0,0,t.width,t.height); return t.toDataURL('image/png'); }
 
-  async function refreshFromServer(){
-    if(!serverOn()) return;
-    const rf=$('refresh'); if(rf){ rf.disabled=true; rf.textContent='Loading\u2026'; }
+  async function sha256Hex(s){
+    const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+    return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');
+  }
+  const PH = { timeZone:'Asia/Manila' };
+  function fmtTimeIn(r){ const d=new Date(r.serverTime); if(!r.serverTime||isNaN(d)) return '';
+    return d.toLocaleString('en-PH',{...PH,month:'short',day:'numeric',hour:'numeric',minute:'2-digit',second:'2-digit'}); }
+  function ctrlNo(r){ return String(r.controlNo||''); }
+  function fmtStamp(iso){ const d=new Date(iso); if(!iso||isNaN(d)) return '';
+    const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{...PH,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(d).map(x=>[x.type,x.value]));
+    return p.year+'-'+p.month+'-'+p.day+' '+p.hour+':'+p.minute+':'+p.second; }
+
+  async function refreshFromServer(preferred){
+    if(!serverOn()) return false;
+    const rf=$('refresh'); rf.disabled=true; rf.textContent='Loading\u2026';
+    let ok=false;
     try{
       const res=await fetch(SCRIPT_URL, {method:'GET'});
       const data=await res.json();
-      if(Array.isArray(data.records)){ roster=data.records; save(); rebuildFilter(); render(); }
-    }catch(e){ /* offline: keep the cached list */ }
-    if(rf){ rf.disabled=false; rf.textContent='Refresh'; }
+      if(Array.isArray(data.records)){ roster=data.records; save(); rebuildFilter(preferred); render(); ok=true; }
+    }catch(e){ /* offline: keep cached list */ }
+    rf.disabled=false; rf.textContent='Refresh';
+    return ok;
   }
 
   function eventsList(){ const s=new Set(); roster.forEach(r=>{ if(r.event) s.add(String(r.event).trim()); }); return [...s].sort((a,b)=>a.localeCompare(b)); }
@@ -308,36 +310,26 @@
   }
   function currentFilter(){ return $('eventFilter').value; }
   function filtered(){ const f=currentFilter(); if(!f || f==='__ALL__') return roster.slice();
-    const fl=f.toLowerCase(); return roster.filter(r=>String(r.event||'').trim().toLowerCase()===fl); }
+    const fl=f.trim().toLowerCase(); return roster.filter(r=>String(r.event||'').trim().toLowerCase()===fl); }
 
-  // Collapse repeat check-ins by the same person (same first+last+office) down to their
-  // most recent entry, so one person signing in twice for the same event only appears once.
+  // One row per person (same first+last+office): keeps their FIRST check-in.
+  // Must match manifest_() in the Apps Script so the integrity code can be verified.
   function dedupeByPerson(list){
     const map = new Map();
     list.forEach(r=>{
-      const key = [String(r.first||'').trim().toLowerCase(), String(r.last||'').trim().toLowerCase(), String(r.office||'').trim().toLowerCase()].join('|');
-      map.set(key, r); // later entries overwrite earlier ones, keeping the most recent
+      const key=[r.first,r.last,r.office].map(x=>String(x||'').trim().toLowerCase()).join('|');
+      if(!map.has(key)) map.set(key, r);
     });
     return [...map.values()];
   }
 
-  function venueForFilter(){
+  function metaForFilter(field){
     const f=currentFilter();
     if(f && f!=='__ALL__'){
       const preset=findPreset(f);
-      if(preset && preset.venue) return preset.venue;
-      const rec = roster.find(r=>String(r.event||'').trim()===f && r.venue);
-      if(rec) return rec.venue;
-    }
-    return '';
-  }
-  function timeForFilter(){
-    const f=currentFilter();
-    if(f && f!=='__ALL__'){
-      const preset=findPreset(f);
-      if(preset && preset.time) return preset.time;
-      const rec = roster.find(r=>String(r.event||'').trim()===f && r.time);
-      if(rec) return rec.time;
+      if(preset && preset[field]) return preset[field];
+      const rec = roster.find(r=>String(r.event||'').trim()===f && r[field]);
+      if(rec) return rec[field];
     }
     return '';
   }
@@ -347,117 +339,214 @@
     const body=$('rosterBody'); body.innerHTML='';
     $('count').textContent='('+list.length+')';
     $('emptyState').style.display = list.length? 'none':'block';
-    const venue = venueForFilter();
-    const time = timeForFilter();
-    const bits = [venue ? ('Venue: '+venue) : '', time ? ('Time: '+time) : ''].filter(Boolean);
-    $('venueDisplay').textContent = bits.join('   \u00b7   ');
+    const venue=metaForFilter('venue'), time=metaForFilter('time');
+    $('venueDisplay').textContent = [venue?'Venue: '+venue:'', time?'Time: '+time:''].filter(Boolean).join('   \u00b7   ');
     list.forEach((r,i)=>{
       const tr=document.createElement('tr');
       tr.innerHTML = `<td class="num">${i+1}</td>`+
         `<td>${esc(r.first)} ${esc(r.last)}</td>`+
         `<td>${esc(r.office)}</td>`+
         `<td>${esc(r.date)}</td>`+
-        `<td>${r.sig? '<img class="signm" src="'+r.sig+'" alt="signature">':''}</td>`;
+        `<td class="tin">${esc(fmtTimeIn(r))}</td>`+
+        `<td class="rid">${esc(ctrlNo(r))}</td>`+
+        `<td>${/^data:image\/png;base64,/.test(r.sig||'')? '<img class="signm" src="'+r.sig+'" alt="signature">':''}</td>`;
       body.appendChild(tr);
     });
   }
   $('eventFilter').addEventListener('change', render);
   rebuildFilter(); render();
 
-  // ---- submit ----
+  // ---- submit: saved only once the server confirms ----
   $('attForm').addEventListener('submit', async (e)=>{
     e.preventDefault();
-    const eventName = currentEventName();
-    const venue = $('venue').value.trim();
-    const time = $('meetingTime').value.trim();
+    const eventName=currentEventName();
+    const venue=$('venue').value.trim(), time=$('meetingTime').value.trim();
     const first=$('first').value.trim(), last=$('last').value.trim(), office=$('office').value.trim(), date=$('date').value;
     const msg=$('msg'); msg.className='msg';
-    if(!eventName){ msg.textContent='Please select (or type) the event / meeting name first.'; msg.classList.add('err'); $('eventSelect').focus(); return; }
-    if(!first || !last || !office || !date){ msg.textContent='Please fill in all required fields.'; msg.classList.add('err'); return; }
-    if(!hasSig){ msg.textContent='Please add your signature above before submitting.'; msg.classList.add('err'); return; }
-    const entry = { event:eventName, venue, time, first, last, office, date, sig:smallSig() };
-    roster.push(entry); save(); rebuildFilter(entry.event); render();
-    $('first').value=''; $('last').value=''; $('office').value=''; clearSig(); $('first').focus();
-    msg.className='msg ok';
-    showToast('\u2713 '+first+' '+last+' checked in successfully');
-    if(serverOn()){
-      msg.textContent='Saving '+first+' '+last+'\u2026';
-      try{
-        await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body: JSON.stringify(entry) });
-        await refreshFromServer();
-        msg.textContent='\u2713 '+first+' '+last+' checked in and saved to the sheet.';
-      }catch(err){
-        msg.textContent='\u2713 '+first+' '+last+' checked in (saved on this device; reconnect to sync to the sheet).';
-      }
-    } else {
-      msg.textContent='\u2713 '+first+' '+last+' checked in. (Add your Google Sheet link in the code to retain records.)';
+    const fail = t => { msg.textContent=t; msg.classList.add('err'); };
+    if(!eventName){ fail('Select or type the event / meeting name first.'); $('eventSelect').focus(); return; }
+    if(!first || !last || !office || !date){ fail('Fill in all required fields.'); return; }
+    if(!hasSig){ fail('Add your signature above before submitting.'); return; }
+    if(!serverOn()){ fail('This form is not connected to the attendance sheet. Contact the organizer.'); return; }
+
+    const entry = { event:eventName, venue, time, first, last, office, date, sig:smallSig(),
+      submittedAt:new Date().toISOString(),
+      clientTz:(Intl.DateTimeFormat().resolvedOptions().timeZone||''),
+      userAgent:navigator.userAgent };
+
+    const btn=$('submitBtn'); btn.disabled=true; btn.textContent='Submitting\u2026';
+    msg.textContent='Saving '+first+' '+last+'\u2026';
+    try{
+      const res = await fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(entry) });
+      const data = await res.json();
+      if(!data.ok) throw new Error(data.error || 'The sheet rejected the entry');
+      $('first').value=''; $('last').value=''; $('office').value=''; clearSig(); $('first').focus();
+      msg.className='msg ok';
+      msg.textContent='\u2713 '+first+' '+last+' checked in \u00b7 '+data.controlNo+
+        ' \u00b7 '+fmtTimeIn({serverTime:data.serverTime});
+      showToast(first+' '+last+' checked in');
+      await refreshFromServer(eventName);
+    }catch(err){
+      fail('Not saved: '+(err.message||'no connection')+'. Check the internet connection and submit again.');
+    }finally{
+      btn.disabled=false; btn.textContent='Submit Attendance';
     }
-    setTimeout(()=>{ if(msg.classList.contains('ok')) msg.textContent=''; }, 4500);
   });
 
-  // ---- refresh from sheet + load existing records on open ----
-  $('refresh').addEventListener('click', refreshFromServer);
+  $('refresh').addEventListener('click', ()=>refreshFromServer());
   refreshFromServer();
 
-  // ---- export PDF ----
-  $('exportPdf').addEventListener('click', ()=>{
-    const f = currentFilter();
-    if(!f || f === '__ALL__'){
-      alert('Please select a specific event from the dropdown above before exporting — this keeps each PDF to one event only.');
-      $('eventFilter').focus();
-      return;
+  // ---- export PDF (server-confirmed records only) ----
+  $('exportPdf').addEventListener('click', async ()=>{
+    const f=currentFilter();
+    if(!f || f==='__ALL__'){
+      alert('Select a specific event from the dropdown before exporting, so each PDF covers one event only.');
+      $('eventFilter').focus(); return;
     }
-    const list = dedupeByPerson(filtered());
-    if(!list.length){ alert('No attendance entries to export for this selection.'); return; }
+    if(!(await refreshFromServer(f))){ alert('Could not reach the attendance sheet. Connect to the internet and export again.'); return; }
+    const list = dedupeByPerson(filtered()).filter(r=>r.rowHash && r.recordId && r.controlNo);
+    if(!list.length){ alert('No attendance entries to export for this event.'); return; }
+
+    const integrity = (await sha256Hex(list.map(r=>r.rowHash).join('\n'))).slice(0,16).toUpperCase().match(/.{4}/g).join('-');
+
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit:'pt', format:'a4' });
     const W=doc.internal.pageSize.getWidth(), H=doc.internal.pageSize.getHeight(), M=40;
-    const eventName = ((f && f!=='__ALL__') ? f : (currentEventName() || (list[0] && list[0].event) || 'All Events')).slice(0,60);
-    const activeVenue = venueForFilter() || $('venue').value.trim() || '';
-    const activeTime = timeForFilter() || $('meetingTime').value.trim() || '';
-    const metaLine = [activeVenue ? ('Venue: '+activeVenue) : '', activeTime ? ('Time: '+activeTime) : ''].filter(Boolean).join('   \u00b7   ');
-    const hasMeta = !!metaLine;
-    const headH = hasMeta ? 108 : 94;
-    const tableStartY = hasMeta ? 132 : 118;
+    const eventName = f.slice(0,60);
+    const venue=metaForFilter('venue'), time=metaForFilter('time');
+    const metaLine=[venue?'Venue: '+venue:'', time?'Time: '+time:''].filter(Boolean).join('   \u00b7   ');
+    const headH = metaLine ? 108 : 94, tableStartY = metaLine ? 132 : 118;
 
     function header(){
       doc.setFillColor(94,32,48); doc.rect(0,0,W,headH,'F');
       doc.setTextColor(255,255,255); doc.setFont('times','bold'); doc.setFontSize(22); doc.text('Attendance Sheet', M, 36);
-      doc.setFont('times','bold'); doc.setFontSize(13); doc.text(eventName, M, 60);
-      if(hasMeta){
-        doc.setFont('times','normal'); doc.setFontSize(11); doc.text(metaLine, M, 78);
-        doc.setFont('times','normal'); doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, 96);
-      } else {
-        doc.setFont('times','normal'); doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, 78);
-      }
+      doc.setFontSize(13); doc.text(eventName, M, 60);
+      doc.setFont('times','normal');
+      if(metaLine){ doc.setFontSize(11); doc.text(metaLine, M, 78); }
+      doc.setFontSize(10); doc.text('Office of the Vice President for Digital Transformation', M, metaLine ? 96 : 78);
     }
-    const cN=M, cName=M+22, cOffice=M+192, cDate=M+320, cSig=M+382; // sig img 92 wide -> ends at M+474
+    const cN=M, cName=M+20, cOffice=M+148, cDate=M+232, cId=M+322, cSig=M+412;
     function colHeads(y){
-      doc.setTextColor(94,32,48); doc.setFont('times','bold'); doc.setFontSize(11);
-      doc.text('#',cN,y); doc.text('Full Name',cName,y); doc.text('Office / Department',cOffice,y);
-      doc.text('Date',cDate,y); doc.text('Signature',cSig,y);
+      doc.setTextColor(94,32,48); doc.setFont('times','bold'); doc.setFontSize(10.5);
+      doc.text('#',cN,y); doc.text('Full Name',cName,y); doc.text('Office',cOffice,y);
+      doc.text('Date / Time In',cDate,y); doc.text('Control No.',cId,y); doc.text('Signature',cSig,y);
       doc.setDrawColor(94,32,48); doc.line(M,y+5,W-M,y+5);
     }
-    header();
-    let y=tableStartY; colHeads(y); y+=20;
-    doc.setTextColor(30,30,30); doc.setFont('times','normal'); doc.setFontSize(11);
+    function footer(page){
+      doc.setFont('times','normal'); doc.setFontSize(8.5); doc.setTextColor(120,110,105);
+      doc.text('Total present: '+list.length+'   \u00b7   Integrity code: '+integrity+'   \u00b7   Generated '+
+        new Date().toLocaleString('en-PH',PH)+'   \u00b7   Page '+page, M, H-30);
+      doc.text('Time In is recorded by the server. Control numbers and record IDs match the OVPDx audit-protected sheet; see the Audit Trail page. The integrity code can be re-computed from the sheet to confirm no entry was changed.', M, H-18, { maxWidth: W-2*M });
+    }
+    let page=1;
+    header(); let y=tableStartY; colHeads(y); y+=20;
 
     list.forEach((r,i)=>{
-      if(y > H-70){ doc.addPage(); header(); y=tableStartY; colHeads(y); y+=20; doc.setTextColor(30,30,30); doc.setFont('times','normal'); doc.setFontSize(11); }
+      if(y > H-80){ footer(page); doc.addPage(); page++; header(); y=tableStartY; colHeads(y); y+=20; }
       const baseY=y;
-      doc.text(String(i+1), cN, baseY+22);
-      doc.text((r.first+' '+r.last).slice(0,28), cName, baseY+22);
-      doc.text((r.office||'').slice(0,22), cOffice, baseY+22);
-      doc.text(r.date||'', cDate, baseY+22);
+      doc.setTextColor(30,30,30); doc.setFont('times','normal'); doc.setFontSize(10.5);
+      doc.text(String(i+1), cN, baseY+20);
+      doc.text((r.first+' '+r.last).slice(0,26), cName, baseY+20);
+      doc.text(String(r.office||'').slice(0,14), cOffice, baseY+20);
+      doc.text(String(r.date||''), cDate, baseY+16);
+      doc.setFontSize(8.5); doc.setTextColor(110,100,95);
+      doc.text(fmtTimeIn(r), cDate, baseY+28);
+      doc.setFont('courier','normal'); doc.setFontSize(8.5); doc.setTextColor(60,55,50);
+      doc.text(ctrlNo(r), cId, baseY+20);
       if(r.sig){ try{ doc.addImage(r.sig,'PNG', cSig, baseY+2, 92, 34); }catch(e){} }
       y += 42; doc.setDrawColor(215,210,205); doc.line(M, y-6, W-M, y-6);
     });
+    footer(page);
 
-    doc.setFontSize(9); doc.setTextColor(140,130,125);
-    doc.text('Total present: '+list.length+'   \u00b7   Generated '+new Date().toLocaleString(), M, H-24);
+    // ---- Audit trail: OVPDx ledger timeline (one per event export) ----
+    const genAt = new Date();
+    const phDate = iso => { const d=new Date(iso); return isNaN(d)?'':d.toLocaleDateString('en-GB',{...PH,day:'numeric',month:'short',year:'numeric'}); };
+    const phTime = iso => { const d=new Date(iso); return isNaN(d)?'':d.toLocaleTimeString('en-PH',{...PH,hour:'numeric',minute:'2-digit',second:'2-digit'})+' PHT'; };
+    const utcTime = iso => { const d=new Date(iso); return isNaN(d)?'':d.toISOString().slice(11,19)+' UTC'; };
+    const MAROON=[94,32,48], GREEN=[45,74,46];
+    const tl=M+108, cx=M+126;                      // timeline x, content x
+
+    function auditBand(cont){
+      doc.setFillColor(...MAROON); doc.rect(0,0,W,cont?44:76,'F');
+      doc.setTextColor(255,255,255); doc.setFont('times','bold');
+      if(cont){ doc.setFontSize(12); doc.text('Audit Trail (continued)  \u2014  '+eventName, M, 28); return 66; }
+      doc.setFontSize(22); doc.text('Audit Trail', M, 36);
+      doc.setFont('times','normal'); doc.setFontSize(11); doc.text(eventName+'  \u2014  Office of the Vice President for Digital Transformation', M, 58);
+      return 100;
+    }
+    doc.addPage(); page++;
+    let ay = auditBand(false);
+
+    // summary grid
+    const cells=[
+      ['Event', eventName], ['Venue', venue||'\u2014'], ['Meeting time', time||'\u2014'],
+      ['Attendees', String(list.length)], ['Exported', phDate(genAt)+', '+phTime(genAt)], ['Integrity code', integrity]
+    ];
+    const gW=(W-2*M)/3, gH=50;
+    doc.setFillColor(248,244,241); doc.rect(M, ay, W-2*M, gH*2+8, 'F');
+    doc.setDrawColor(...MAROON); doc.setLineWidth(2); doc.line(M, ay, M, ay+gH*2+8); doc.setLineWidth(0.5);
+    cells.forEach(([k,v],i)=>{
+      const x=M+14+(i%3)*gW, y=ay+20+Math.floor(i/3)*gH;
+      doc.setTextColor(...MAROON); doc.setFont('times','bold'); doc.setFontSize(9); doc.text(k, x, y);
+      doc.setTextColor(30,30,30);
+      if(k==='Integrity code'){ doc.setFont('courier','bold'); doc.setFontSize(10); }
+      else { doc.setFont('times','normal'); doc.setFontSize(10.5); }
+      doc.text(doc.splitTextToSize(String(v), gW-20).slice(0,2), x, y+15);
+    });
+    ay += gH*2+8+30;
+
+    doc.setTextColor(...MAROON); doc.setFont('times','bold'); doc.setFontSize(13); doc.text('Check-in ledger', M, ay);
+    doc.setTextColor(120,110,105); doc.setFont('times','italic'); doc.setFontSize(9.5);
+    doc.text('In order of arrival, as recorded by the attendance server.', M, ay+14);
+    ay += 34;
+
+    let lastNodeY = null;
+    function seg(from, to, color){ doc.setDrawColor(...color); doc.setLineWidth(1.2); doc.line(tl, from, tl, to); doc.setLineWidth(0.5); }
+    function entry(iso, h, node, body, color){
+      if(ay+h > H-64){ if(lastNodeY!==null) seg(lastNodeY, H-64, MAROON); footer(page); doc.addPage(); page++; ay=auditBand(true); lastNodeY=ay-14; }
+      if(lastNodeY!==null) seg(lastNodeY+5, ay+1-(color?6:5), color||MAROON);
+      lastNodeY = ay+1;
+      // time column (PHT first, UTC secondary)
+      doc.setTextColor(30,30,30); doc.setFont('times','bold'); doc.setFontSize(9.5); doc.text(phDate(iso), tl-14, ay+4, {align:'right'});
+      doc.setFont('times','normal'); doc.text(phTime(iso), tl-14, ay+16, {align:'right'});
+      doc.setTextColor(140,130,125); doc.setFontSize(8); doc.text(utcTime(iso), tl-14, ay+27, {align:'right'});
+      node(tl, ay+1);
+      body(ay);
+      ay += h;
+    }
+
+    list.forEach((r,i)=>{
+      entry(r.serverTime, 46, (x,y)=>{ doc.setFillColor(255,255,255); doc.setDrawColor(...MAROON); doc.setLineWidth(1.4); doc.circle(x,y,4.5,'FD'); doc.setLineWidth(0.5); },
+      y=>{
+        doc.setTextColor(30,30,30); doc.setFont('times','bold'); doc.setFontSize(11);
+        doc.text((r.first+' '+r.last).slice(0,40), cx, y+4);
+        const nw=doc.getTextWidth((r.first+' '+r.last).slice(0,40)+'  ');
+        doc.setFont('times','normal'); doc.setTextColor(110,100,95); doc.text('signed in \u2014 '+String(r.office||'').slice(0,30), cx+nw, y+4);
+        doc.setFont('courier','normal'); doc.setFontSize(7.5); doc.setTextColor(80,72,68);
+        doc.text(ctrlNo(r)+'   '+r.recordId, cx, y+17);
+      });
+    });
+    entry(genAt.toISOString(), 50, (x,y)=>{
+        doc.setFillColor(...GREEN); doc.circle(x,y,6,'F');
+        doc.setDrawColor(255,255,255); doc.setLineWidth(1.3); doc.line(x-2.6,y,x-0.6,y+2.2); doc.line(x-0.6,y+2.2,x+3,y-2.4); doc.setLineWidth(0.5);
+      },
+      y=>{
+        doc.setTextColor(...GREEN); doc.setFont('times','bold'); doc.setFontSize(11);
+        doc.text('Attendance sheet exported', cx, y+4);
+        doc.setTextColor(110,100,95); doc.setFont('times','normal'); doc.setFontSize(9.5);
+        doc.text(list.length+' attendee'+(list.length===1?'':'s')+' on record. Integrity code '+integrity+'.', cx, y+17);
+      }, GREEN);
+
+    doc.setDrawColor(207,201,194); doc.line(M, ay, W-M, ay);
+    doc.setTextColor(120,110,105); doc.setFont('times','normal'); doc.setFontSize(9);
+    doc.text('Times are set by the attendance server, not the attendee\u2019s device. Any entry changed, removed or inserted after check-in is flagged when the sheet is verified. To verify this export, open the OVPDx attendance sheet and choose Attendance Audit > Verify an export.', M, ay+16, {maxWidth:W-2*M});
+    footer(page);
+
+    fetch(SCRIPT_URL, { method:'POST', headers:{'Content-Type':'text/plain'},
+      body: JSON.stringify({ action:'logExport', event:f, count:list.length, integrity }) }).catch(()=>{});
+
     const fnEvent = eventName.replace(/[^a-z0-9]+/gi,'_').replace(/^_+|_+$/g,'').slice(0,40) || 'Event';
-    const fnDate = (list[0] && list[0].date) ? list[0].date : new Date().toISOString().slice(0,10);
-    doc.save('OVPDx_Attendance_'+fnEvent+'_'+fnDate+'.pdf');
+    doc.save('OVPDx_Attendance_'+fnEvent+'_'+(list[0].date || new Date().toISOString().slice(0,10))+'.pdf');
   });
 </script>
 </body>
