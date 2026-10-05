@@ -406,7 +406,11 @@
     if(!(await refreshFromServer(f))){ alert('Could not reach the attendance sheet. Connect to the internet and export again.'); return; }
     const all = dedupeByPerson(filtered());
     const list = all.filter(r=>r.rowHash && r.recordId && r.controlNo && r.serverTime);
-    if(!all.length){ alert('No attendance entries to export for this event.'); return; }
+    if(!all.length){
+      alert('The attendance sheet has no check-ins for "'+f+'" yet.\n\n'+
+        'Entries made before the audit update stay in the old tab and are not exported. Do a new check-in for this event, then export again.');
+      return;
+    }
     if(!list.length){
       alert(all.length+' entr'+(all.length===1?'y':'ies')+' found for this event, but none have an audit record (control number, Record ID, server time).\n\n'+
         'This means the sheet is still running the old Apps Script, or these entries were made before it was updated. '+
